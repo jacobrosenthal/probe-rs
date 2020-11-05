@@ -193,21 +193,61 @@ impl DAPLink {
         match count {
             _ if count == batch.len() => {
                 if response.transfer_response.protocol_error {
+                    let ctrl_reg: crate::architecture::arm::dp::Ctrl = self.read_dp_register()?;
+                    log::error!(
+                        "Reading DAP failed protocol. Ctrl/Stat register value is: {:#?}",
+                        ctrl_reg
+                    );
+
                     Err(DapError::SwdProtocol.into())
                 } else {
                     match response.transfer_response.ack {
                         Ack::Ok => Ok(response.transfer_data),
-                        Ack::NoAck => Err(DapError::NoAcknowledge.into()),
-                        Ack::Fault => Err(DapError::FaultResponse.into()),
+                        Ack::NoAck => {
+                            let ctrl_reg: crate::architecture::arm::dp::Ctrl =
+                                self.read_dp_register()?;
+                            log::error!(
+                                "Reading DAP failed noack. Ctrl/Stat register value is: {:#?}",
+                                ctrl_reg
+                            );
+
+                            Err(DapError::NoAcknowledge.into())
+                        }
+                        Ack::Fault => {
+                            let ctrl_reg: crate::architecture::arm::dp::Ctrl =
+                                self.read_dp_register()?;
+                            log::error!(
+                                "Reading DAP failed fault. Ctrl/Stat register value is: {:#?}",
+                                ctrl_reg
+                            );
+
+                            Err(DapError::FaultResponse.into())
+                        }
                         Ack::Wait => Err(DapError::WaitResponse.into()),
                     }
                 }
             }
-            0 => Err(DebugProbeError::Other(anyhow!(
-                "Didn't receive any answer during batch processing: {:?}",
-                batch
-            ))),
-            _ => Err(DebugProbeError::BatchError(batch[count - 1])),
+            0 => {
+                let ctrl_reg: crate::architecture::arm::dp::Ctrl = self.read_dp_register()?;
+                log::error!(
+                    "Reading DAP failed zero. Ctrl/Stat register value is: {:#?}",
+                    ctrl_reg
+                );
+
+                Err(DebugProbeError::Other(anyhow!(
+                    "Didn't receive any answer during batch processing: {:?}",
+                    batch
+                )))
+            }
+            _ => {
+                let ctrl_reg: crate::architecture::arm::dp::Ctrl = self.read_dp_register()?;
+                log::error!(
+                    "Reading DAP failed _. Ctrl/Stat register value is: {:#?}",
+                    ctrl_reg
+                );
+
+                Err(DebugProbeError::BatchError(batch[count - 1]))
+            }
         }
     }
 
