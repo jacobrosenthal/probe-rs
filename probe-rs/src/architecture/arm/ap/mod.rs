@@ -154,7 +154,7 @@ pub(crate) fn valid_access_ports<AP>(debug_port: &mut AP) -> Vec<GenericAP>
 where
     AP: APAccess<GenericAP, IDR>,
 {
-    (0..=1)
+    (0..=255)
         .map(GenericAP::new)
         .take_while(|port| access_port_is_valid(debug_port, *port))
         .collect::<Vec<GenericAP>>()

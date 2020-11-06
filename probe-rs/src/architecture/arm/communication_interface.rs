@@ -243,8 +243,18 @@ impl<'interface> ArmCommunicationInterface {
         interface.enter_debug_mode()?;
 
         /* determine the number and type of available APs */
+        let aps = valid_access_ports(&mut interface);
 
-        for ap in valid_access_ports(&mut interface) {
+        /* Testing aps can fault, clear any faults*/
+        let ctrl_reg: crate::architecture::arm::dp::Ctrl = interface.read_dp_register()?;
+        if ctrl_reg.sticky_err() {
+            log::trace!("AP Search faulted. Cleaning up");
+            let mut abort = Abort::default();
+            abort.set_stkerrclr(true);
+            interface.write_dp_register(abort)?;
+        }
+
+        for ap in aps {
             let ap_state = interface.read_ap_information(ap)?;
 
             log::debug!("AP {}: {:?}", ap.port_number(), ap_state);
