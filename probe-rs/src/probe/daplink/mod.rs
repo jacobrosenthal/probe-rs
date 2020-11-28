@@ -189,7 +189,14 @@ impl DAPLink {
             TransferRequest::new(&transfers),
         )?;
 
+        // When overrun detection is enabled, WAIT and FAULT responses require a data phase:
+        // • If the transaction is a read, the data in the data phase is UNKNOWN . The target does not drive the line, and the
+        // host must not check the parity bit.
+        // • If the transaction is a write, the data phase is ignored.
+
         if response.transfer_response.protocol_error {
+            //it must not drive the line for at least the length of any potential
+            //data phase and then attempt a line reset
             Err(DapError::SwdProtocol.into())
         } else {
             match response.transfer_response.ack {
@@ -214,10 +221,15 @@ impl DAPLink {
                         ctrl
                     );
 
-                    if ctrl.sticky_err() {
+                    // Other fault reasons than overrun or write error are not handled yet.
+                    if ctrl.sticky_orun() || ctrl.sticky_err() {
+                        // We did not handle a WAIT state properly
+
+                        // Because we use overrun detection, we now have to clear the overrun error
                         let mut abort = Abort(0);
 
                         // Clear sticky error flags
+                        abort.set_orunerrclr(ctrl.sticky_orun());
                         abort.set_stkerrclr(ctrl.sticky_err());
 
                         DAPAccess::write_register(
@@ -226,12 +238,25 @@ impl DAPLink {
                             Abort::ADDRESS as u16,
                             abort.into(),
                         )?;
+
+                        //how to retry
                     }
 
                     Err(DapError::FaultResponse.into())
                 }
                 Ack::Wait => {
                     log::trace!("wait",);
+
+                    let mut abort = Abort(0);
+
+                    abort.set_orunerrclr(true);
+
+                    DAPAccess::write_register(
+                        self,
+                        PortType::DebugPort,
+                        Abort::ADDRESS as u16,
+                        abort.into(),
+                    )?;
 
                     Err(DapError::WaitResponse.into())
                 }
@@ -471,17 +496,25 @@ impl DebugProbe for DAPLink {
 
         self.configure_swd(swd::configure::ConfigureRequest {})?;
 
+        // Switching from JTAG to SWD operation
+
+        // ~50 SWCLKTCK
         self.send_swj_sequences(SequenceRequest::new(&[
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ])?)?;
 
+        // 16-bit JTAG-to-SWD select sequence
         self.send_swj_sequences(SequenceRequest::new(&[0x9e, 0xe7])?)?;
 
+        // ~50 SWCLKTCK
         self.send_swj_sequences(SequenceRequest::new(&[
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ])?)?;
 
+        // returning to low state? 2 idle cycles?
         self.send_swj_sequences(SequenceRequest::new(&[0x00])?)?;
+
+        // On selecting SWD operation, the SWD interface returns to its reset state.
 
         debug!("Successfully changed to SWD.");
 
@@ -565,7 +598,7 @@ impl DebugProbe for DAPLink {
     fn get_arm_interface<'probe>(
         self: Box<Self>,
     ) -> Result<Option<Box<dyn ArmProbeInterface + 'probe>>, DebugProbeError> {
-        let interface = ArmCommunicationInterface::new(self, false)?;
+        let interface = ArmCommunicationInterface::new(self, true)?;
 
         Ok(Some(Box::new(interface)))
     }
