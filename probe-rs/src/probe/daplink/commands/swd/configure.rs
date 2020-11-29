@@ -8,7 +8,8 @@ impl Request for ConfigureRequest {
 
     fn to_bytes(&self, buffer: &mut [u8], offset: usize) -> Result<usize> {
         // TODO: Allow configuration
-        buffer[offset] = 0;
+        // always dataphase
+        buffer[offset] = 4;
         Ok(1)
     }
 }
